@@ -1,6 +1,10 @@
+
 #include <iostream>
+#include <vector>
 
 #include "database/Database.h"
+#include "models/Product.h"
+#include "repositories/ProductRepository.h"
 
 int main() {
     Database database("database/shop.db");
@@ -27,7 +31,65 @@ int main() {
         return 1;
     }
 
-    std::cout << "Products table created successfully!" << std::endl;
+    const std::string insert_product = R"(
+        INSERT OR IGNORE INTO products (
+            name,
+            price,
+            description,
+            category,
+            image_path
+        )
+        VALUES (
+            'iPhone 17',
+            999.99,
+            'Apple smartphone with modern features',
+            'Phones',
+            'images/iphone17.jpg'
+        );
+    )";
+
+    if (!database.execute(insert_product)) {
+        return 1;
+    }
+
+    ProductRepository productRepository(database);
+
+    std::vector<Product> products = productRepository.getAll();
+
+    std::cout << "\nProducts found: "
+              << products.size()
+              << std::endl;
+
+    for (const Product& product : products) {
+        std::cout << "\n--- Product ---" << std::endl;
+        std::cout << "ID: "
+                  << product.getId()
+                  << std::endl;
+
+        std::cout << "Name: "
+                  << product.getName()
+                  << std::endl;
+
+        std::cout << "Price: "
+                  << product.getPrice()
+                  << std::endl;
+
+        std::cout << "Description: "
+                  << product.getDescription()
+                  << std::endl;
+
+        std::cout << "Category: "
+                  << product.getCategory()
+                  << std::endl;
+
+        std::cout << "Image: "
+                  << product.getImagePath()
+                  << std::endl;
+
+        std::cout << "Available: "
+                  << (product.isAvailable() ? "Yes" : "No")
+                  << std::endl;
+    }
 
     return 0;
 }
