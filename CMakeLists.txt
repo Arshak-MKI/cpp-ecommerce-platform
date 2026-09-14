@@ -1,3 +1,4 @@
+
 cmake_minimum_required(VERSION 3.20)
 
 project(CppEcommercePlatform VERSION 1.0 LANGUAGES CXX)
@@ -10,26 +11,27 @@ find_package(SQLite3 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTORCC ON)
-
 add_executable(cpp_ecommerce
     main.cpp
 
+    # GUI
+    src/gui/MainWindow.cpp
+
+    # Database
     src/database/database.cpp
 
+    # Models
     src/models/Product.cpp
     src/models/User.cpp
     src/models/Order.cpp
 
+    # Repositories
     src/repositories/ProductRepository.cpp
     src/repositories/UserRepository.cpp
     src/repositories/OrderRepository.cpp
 
+    # Services
     src/services/ProductService.cpp
-
-    src/gui/MainWindow.cpp
 )
 
 target_include_directories(cpp_ecommerce PRIVATE
