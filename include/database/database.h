@@ -11,6 +11,7 @@ public:
     ~Database();
 
     bool open();
+
     bool execute(const std::string& sql);
 
     bool query(

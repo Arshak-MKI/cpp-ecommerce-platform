@@ -1,5 +1,5 @@
 
-#include "database/Database.h"
+#include "database/database.h"
 
 #include <iostream>
 #include <sqlite3.h>
@@ -19,13 +19,18 @@ bool Database::open() {
 
     if (result != SQLITE_OK) {
         std::cerr << "Database opening failed: "
-                  << sqlite3_errmsg(db) << std::endl;
+                  << sqlite3_errmsg(db)
+                  << std::endl;
 
         return false;
     }
 
+    // Give SQLite time to wait when another connection holds a write lock.
+    sqlite3_busy_timeout(db, 5000);
+
     return true;
 }
+
 
 bool Database::execute(const std::string& sql) {
     char* error_message = nullptr;
@@ -40,7 +45,8 @@ bool Database::execute(const std::string& sql) {
 
     if (result != SQLITE_OK) {
         std::cerr << "SQL execution failed: "
-                  << error_message << std::endl;
+                  << error_message
+                  << std::endl;
 
         sqlite3_free(error_message);
         return false;
@@ -66,7 +72,8 @@ bool Database::query(
 
     if (result != SQLITE_OK) {
         std::cerr << "SQL query failed: "
-                  << error_message << std::endl;
+                  << error_message
+                  << std::endl;
 
         sqlite3_free(error_message);
         return false;
@@ -74,3 +81,4 @@ bool Database::query(
 
     return true;
 }
+
