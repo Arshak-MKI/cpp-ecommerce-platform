@@ -1,20 +1,23 @@
-
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QComboBox>
 #include <QDialog>
+#include <QFormLayout>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMessageBox>
-#include <QPushButton>
 #include <QPixmap>
+#include <QPushButton>
 #include <QSize>
 #include <QSplitter>
 #include <QVBoxLayout>
 #include <QWidget>
-#include <QAbstractItemView>
+
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -31,6 +34,28 @@
 #include "repositories/OrderRepository.h"
 
 
+std::string escapeSql(
+    const std::string& value
+)
+{
+    std::string result;
+
+    for (char ch : value)
+    {
+        if (ch == '\'')
+        {
+            result += "''";
+        }
+        else
+        {
+            result += ch;
+        }
+    }
+
+    return result;
+}
+
+
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
@@ -40,7 +65,10 @@ int main(int argc, char* argv[])
     // DATABASE
     // =================================================
 
-    Database database("database/shop.db");
+    Database database(
+        "database/shop.db"
+    );
+
 
     if (!database.open())
     {
@@ -48,6 +76,85 @@ int main(int argc, char* argv[])
             nullptr,
             "Database Error",
             "Failed to open database."
+        );
+
+        return 1;
+    }
+
+
+    // =================================================
+    // DATABASE TABLES
+    // =================================================
+
+    const std::string create_products_table = R"(
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            price REAL NOT NULL,
+            description TEXT,
+            category TEXT,
+            image_path TEXT,
+            is_available INTEGER NOT NULL DEFAULT 1
+        );
+    )";
+
+
+    if (!database.execute(
+            create_products_table))
+    {
+        QMessageBox::critical(
+            nullptr,
+            "Database Error",
+            "Failed to create products table."
+        );
+
+        return 1;
+    }
+
+
+    const std::string create_users_table = R"(
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            email TEXT NOT NULL UNIQUE,
+            password TEXT NOT NULL
+        );
+    )";
+
+
+    if (!database.execute(
+            create_users_table))
+    {
+        QMessageBox::critical(
+            nullptr,
+            "Database Error",
+            "Failed to create users table."
+        );
+
+        return 1;
+    }
+
+
+    const std::string create_orders_table = R"(
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            delivery_address TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (product_id) REFERENCES products(id)
+        );
+    )";
+
+
+    if (!database.execute(
+            create_orders_table))
+    {
+        QMessageBox::critical(
+            nullptr,
+            "Database Error",
+            "Failed to create orders table."
         );
 
         return 1;
@@ -72,55 +179,474 @@ int main(int argc, char* argv[])
 
 
     // =================================================
+    // LOGIN / REGISTER
+    // =================================================
+
+    std::optional<User> loggedUser;
+
+
+    QDialog loginDialog;
+
+    loginDialog.setWindowTitle(
+        "Online Market - Login"
+    );
+
+    loginDialog.resize(
+        450,
+        300
+    );
+
+
+    QVBoxLayout loginLayout(
+        &loginDialog
+    );
+
+
+    QLabel loginTitle(
+        "Welcome to Online Market"
+    );
+
+    loginTitle.setAlignment(
+        Qt::AlignCenter
+    );
+
+    loginTitle.setStyleSheet(
+        "font-size: 26px;"
+        "font-weight: bold;"
+        "padding: 20px;"
+    );
+
+
+    loginLayout.addWidget(
+        &loginTitle
+    );
+
+
+    QFormLayout loginForm;
+
+
+    QLineEdit emailEdit;
+
+    emailEdit.setPlaceholderText(
+        "Enter your email"
+    );
+
+
+    QLineEdit passwordEdit;
+
+    passwordEdit.setPlaceholderText(
+        "Enter your password"
+    );
+
+    passwordEdit.setEchoMode(
+        QLineEdit::Password
+    );
+
+
+    loginForm.addRow(
+        "Email:",
+        &emailEdit
+    );
+
+
+    loginForm.addRow(
+        "Password:",
+        &passwordEdit
+    );
+
+
+    loginLayout.addLayout(
+        &loginForm
+    );
+
+
+    QHBoxLayout loginButtons;
+
+
+    QPushButton loginButton(
+        "Login"
+    );
+
+
+    QPushButton registerButton(
+        "Register"
+    );
+
+
+    loginButtons.addWidget(
+        &loginButton
+    );
+
+
+    loginButtons.addWidget(
+        &registerButton
+    );
+
+
+    loginLayout.addLayout(
+        &loginButtons
+    );
+
+
+    QLabel loginStatus;
+
+    loginStatus.setAlignment(
+        Qt::AlignCenter
+    );
+
+    loginStatus.setWordWrap(
+        true
+    );
+
+
+    loginLayout.addWidget(
+        &loginStatus
+    );
+
+
+    // =================================================
     // LOGIN
     // =================================================
 
-    auto user =
-        userRepository.login(
-            "arshak@example.com",
-            "123456"
-        );
-
-
-    if (!user.has_value())
-    {
-        if (!userRepository.registerUser(
-                "Arshak",
-                "arshak@example.com",
-                "123456"))
+    QObject::connect(
+        &loginButton,
+        &QPushButton::clicked,
+        [&]()
         {
-            QMessageBox::critical(
-                nullptr,
-                "Login Error",
-                "Could not create user."
-            );
+            const std::string email =
+                emailEdit
+                    .text()
+                    .trimmed()
+                    .toStdString();
 
-            return 1;
+
+            const std::string password =
+                passwordEdit
+                    .text()
+                    .toStdString();
+
+
+            if (email.empty() ||
+                password.empty())
+            {
+                loginStatus.setText(
+                    "Please enter email and password."
+                );
+
+                return;
+            }
+
+
+            auto result =
+                userRepository.login(
+                    email,
+                    password
+                );
+
+
+            if (result.has_value())
+            {
+                loggedUser =
+                    result;
+
+                loginDialog.accept();
+
+                return;
+            }
+
+
+            loginStatus.setText(
+                "Invalid email or password."
+            );
         }
+    );
 
 
-        user =
-            userRepository.login(
-                "arshak@example.com",
-                "123456"
+    // =================================================
+    // REGISTER
+    // =================================================
+
+    QObject::connect(
+        &registerButton,
+        &QPushButton::clicked,
+        [&]()
+        {
+            QDialog registerDialog(
+                &loginDialog
             );
-    }
 
 
-    if (!user.has_value())
+            registerDialog.setWindowTitle(
+                "Online Market - Register"
+            );
+
+
+            registerDialog.resize(
+                450,
+                350
+            );
+
+
+            QVBoxLayout registerLayout(
+                &registerDialog
+            );
+
+
+            QLabel registerTitle(
+                "Create Your Account"
+            );
+
+
+            registerTitle.setAlignment(
+                Qt::AlignCenter
+            );
+
+
+            registerTitle.setStyleSheet(
+                "font-size: 24px;"
+                "font-weight: bold;"
+                "padding: 15px;"
+            );
+
+
+            registerLayout.addWidget(
+                &registerTitle
+            );
+
+
+            QFormLayout registerForm;
+
+
+            QLineEdit usernameEdit;
+
+            usernameEdit.setPlaceholderText(
+                "Enter username"
+            );
+
+
+            QLineEdit registerEmailEdit;
+
+            registerEmailEdit.setPlaceholderText(
+                "Enter email"
+            );
+
+
+            QLineEdit registerPasswordEdit;
+
+            registerPasswordEdit.setPlaceholderText(
+                "Enter password"
+            );
+
+            registerPasswordEdit.setEchoMode(
+                QLineEdit::Password
+            );
+
+
+            registerForm.addRow(
+                "Username:",
+                &usernameEdit
+            );
+
+
+            registerForm.addRow(
+                "Email:",
+                &registerEmailEdit
+            );
+
+
+            registerForm.addRow(
+                "Password:",
+                &registerPasswordEdit
+            );
+
+
+            registerLayout.addLayout(
+                &registerForm
+            );
+
+
+            QPushButton createAccountButton(
+                "Create Account"
+            );
+
+
+            registerLayout.addWidget(
+                &createAccountButton
+            );
+
+
+            QLabel registerStatus;
+
+            registerStatus.setAlignment(
+                Qt::AlignCenter
+            );
+
+            registerStatus.setWordWrap(
+                true
+            );
+
+
+            registerLayout.addWidget(
+                &registerStatus
+            );
+
+
+            QObject::connect(
+                &createAccountButton,
+                &QPushButton::clicked,
+                [&]()
+                {
+                    const std::string username =
+                        usernameEdit
+                            .text()
+                            .trimmed()
+                            .toStdString();
+
+
+                    const std::string email =
+                        registerEmailEdit
+                            .text()
+                            .trimmed()
+                            .toStdString();
+
+
+                    const std::string password =
+                        registerPasswordEdit
+                            .text()
+                            .toStdString();
+
+
+                    if (username.empty() ||
+                        email.empty() ||
+                        password.empty())
+                    {
+                        registerStatus.setText(
+                            "Please fill all fields."
+                        );
+
+                        return;
+                    }
+
+
+                    // ---------------------------------
+                    // Validate duplicate email
+                    // ---------------------------------
+
+                    auto existingUser =
+                        userRepository.login(
+                            email,
+                            password
+                        );
+
+
+                    if (existingUser.has_value())
+                    {
+                        loggedUser =
+                            existingUser;
+
+                        registerDialog.accept();
+                        loginDialog.accept();
+
+                        return;
+                    }
+
+
+                    // ---------------------------------
+                    // Register
+                    // ---------------------------------
+
+                    const bool registered =
+                        userRepository.registerUser(
+                            username,
+                            email,
+                            password
+                        );
+
+
+                    if (!registered)
+                    {
+                        // Try login once more.
+                        // This also handles cases where
+                        // account creation already happened.
+                        auto createdUser =
+                            userRepository.login(
+                                email,
+                                password
+                            );
+
+
+                        if (createdUser.has_value())
+                        {
+                            loggedUser =
+                                createdUser;
+
+                            registerDialog.accept();
+                            loginDialog.accept();
+
+                            return;
+                        }
+
+
+                        registerStatus.setText(
+                            "Registration failed.\n"
+                            "Username or email may already exist."
+                        );
+
+                        return;
+                    }
+
+
+                    // ---------------------------------
+                    // Login after registration
+                    // ---------------------------------
+
+                    auto createdUser =
+                        userRepository.login(
+                            email,
+                            password
+                        );
+
+
+                    if (!createdUser.has_value())
+                    {
+                        registerStatus.setText(
+                            "Account was created, "
+                            "but login failed."
+                        );
+
+                        return;
+                    }
+
+
+                    loggedUser =
+                        createdUser;
+
+
+                    registerDialog.accept();
+                    loginDialog.accept();
+                }
+            );
+
+
+            registerDialog.exec();
+        }
+    );
+
+
+    // =================================================
+    // OPEN LOGIN
+    // =================================================
+
+    if (loginDialog.exec() !=
+            QDialog::Accepted ||
+        !loggedUser.has_value())
     {
-        QMessageBox::critical(
-            nullptr,
-            "Login Error",
-            "Could not login user."
-        );
-
-        return 1;
+        return 0;
     }
 
 
     const int currentUserId =
-        user->getId();
+        loggedUser->getId();
 
 
     // =================================================
@@ -129,9 +655,11 @@ int main(int argc, char* argv[])
 
     QWidget window;
 
+
     window.setWindowTitle(
-        "C++ E-Commerce Platform"
+        "Online Market"
     );
+
 
     window.resize(
         1250,
@@ -151,18 +679,21 @@ int main(int argc, char* argv[])
 
     QLabel* title =
         new QLabel(
-            "C++ E-Commerce Platform"
+            "Online Market"
         );
+
 
     title->setAlignment(
         Qt::AlignCenter
     );
+
 
     title->setStyleSheet(
         "font-size: 30px;"
         "font-weight: bold;"
         "padding: 15px;"
     );
+
 
     mainLayout->addWidget(
         title
@@ -180,19 +711,21 @@ int main(int argc, char* argv[])
             )
                 .arg(
                     QString::fromStdString(
-                        user->getUsername()
+                        loggedUser->getUsername()
                     )
                 )
                 .arg(
                     QString::fromStdString(
-                        user->getEmail()
+                        loggedUser->getEmail()
                     )
                 )
         );
 
+
     userLabel->setAlignment(
         Qt::AlignCenter
     );
+
 
     mainLayout->addWidget(
         userLabel
@@ -200,7 +733,7 @@ int main(int argc, char* argv[])
 
 
     // =================================================
-    // SEARCH + CATEGORY
+    // SEARCH / CATEGORY
     // =================================================
 
     QHBoxLayout* filterLayout =
@@ -230,9 +763,11 @@ int main(int argc, char* argv[])
         searchEdit
     );
 
+
     filterLayout->addWidget(
         categoryComboBox
     );
+
 
     filterLayout->addWidget(
         refreshButton
@@ -254,21 +789,29 @@ int main(int argc, char* argv[])
         );
 
 
-    // -------------------------------------------------
+    // =================================================
     // PRODUCT LIST
-    // -------------------------------------------------
+    // =================================================
 
     QListWidget* productList =
         new QListWidget();
 
 
     productList->setIconSize(
-        QSize(80, 80)
+        QSize(
+            80,
+            80
+        )
     );
 
 
     productList->setSpacing(
         6
+    );
+
+
+    productList->setVerticalScrollMode(
+        QAbstractItemView::ScrollPerPixel
     );
 
 
@@ -287,9 +830,9 @@ int main(int argc, char* argv[])
     );
 
 
-    // -------------------------------------------------
+    // =================================================
     // PRODUCT DETAILS
-    // -------------------------------------------------
+    // =================================================
 
     QWidget* detailWidget =
         new QWidget();
@@ -428,7 +971,7 @@ int main(int argc, char* argv[])
 
 
     // =================================================
-    // ACTION BUTTONS
+    // BUTTONS
     // =================================================
 
     QHBoxLayout* actionLayout =
@@ -544,21 +1087,23 @@ int main(int argc, char* argv[])
         for (const Product& product :
              products)
         {
-           QListWidgetItem* item =
-    new QListWidgetItem(
-        QString::fromStdString(
-            product.getName()
-        )
-    );
+            QListWidgetItem* item =
+                new QListWidgetItem();
 
-            // Product ID
+
+            item->setText(
+                QString::fromStdString(
+                    product.getName()
+                )
+            );
+
+
             item->setData(
                 Qt::UserRole,
                 product.getId()
             );
 
 
-            // Category
             item->setData(
                 Qt::UserRole + 1,
                 QString::fromStdString(
@@ -567,14 +1112,12 @@ int main(int argc, char* argv[])
             );
 
 
-            // Availability
             item->setData(
                 Qt::UserRole + 2,
                 product.isAvailable()
             );
 
 
-            // Name
             item->setData(
                 Qt::UserRole + 3,
                 QString::fromStdString(
@@ -583,14 +1126,12 @@ int main(int argc, char* argv[])
             );
 
 
-            // Price
             item->setData(
                 Qt::UserRole + 4,
                 product.getPrice()
             );
 
 
-            // Description
             item->setData(
                 Qt::UserRole + 5,
                 QString::fromStdString(
@@ -599,7 +1140,6 @@ int main(int argc, char* argv[])
             );
 
 
-            // Image path
             item->setData(
                 Qt::UserRole + 6,
                 QString::fromStdString(
@@ -608,7 +1148,6 @@ int main(int argc, char* argv[])
             );
 
 
-            // Product icon
             const QString imagePath =
                 QString::fromStdString(
                     product.getImagePath()
@@ -651,7 +1190,7 @@ int main(int argc, char* argv[])
 
 
     // =================================================
-    // FILTER PRODUCTS
+    // FILTER
     // =================================================
 
     auto filterProducts =
@@ -838,7 +1377,7 @@ int main(int argc, char* argv[])
 
 
     // =================================================
-    // SEARCH EVENT
+    // EVENTS
     // =================================================
 
     QObject::connect(
@@ -851,10 +1390,6 @@ int main(int argc, char* argv[])
     );
 
 
-    // =================================================
-    // CATEGORY EVENT
-    // =================================================
-
     QObject::connect(
         categoryComboBox,
         &QComboBox::currentTextChanged,
@@ -864,10 +1399,6 @@ int main(int argc, char* argv[])
         }
     );
 
-
-    // =================================================
-    // PRODUCT SELECTION
-    // =================================================
 
     QObject::connect(
         productList,
@@ -881,10 +1412,6 @@ int main(int argc, char* argv[])
         }
     );
 
-
-    // =================================================
-    // REFRESH
-    // =================================================
 
     QObject::connect(
         refreshButton,
@@ -1000,8 +1527,8 @@ int main(int argc, char* argv[])
 
 
             dialog.resize(
-                650,
-                500
+                700,
+                550
             );
 
 
@@ -1015,8 +1542,13 @@ int main(int argc, char* argv[])
             );
 
 
+            titleLabel.setAlignment(
+                Qt::AlignCenter
+            );
+
+
             titleLabel.setStyleSheet(
-                "font-size: 22px;"
+                "font-size: 24px;"
                 "font-weight: bold;"
                 "padding: 10px;"
             );
@@ -1031,7 +1563,15 @@ int main(int argc, char* argv[])
 
 
             list.setIconSize(
-                QSize(70, 70)
+                QSize(
+                    70,
+                    70
+                )
+            );
+
+
+            list.setVerticalScrollMode(
+                QAbstractItemView::ScrollPerPixel
             );
 
 
@@ -1141,239 +1681,241 @@ int main(int argc, char* argv[])
     // MY ORDERS
     // =================================================
 
-// =================================================
-// MY ORDERS
-// =================================================
-
-QObject::connect(
-    ordersButton,
-    &QPushButton::clicked,
-    [&]()
-    {
-        QDialog dialog(
-            &window
-        );
-
-
-        dialog.setWindowTitle(
-            "My Orders"
-        );
-
-
-        dialog.resize(
-            800,
-            600
-        );
-
-
-        QVBoxLayout layout(
-            &dialog
-        );
-
-
-        QLabel titleLabel(
-            "My Orders"
-        );
-
-
-        titleLabel.setStyleSheet(
-            "font-size: 24px;"
-            "font-weight: bold;"
-            "padding: 10px;"
-        );
-
-
-        layout.addWidget(
-            &titleLabel
-        );
-
-
-        QListWidget list;
-
-
-        list.setStyleSheet(
-            "QListWidget {"
-            "    font-size: 16px;"
-            "}"
-            "QListWidget::item {"
-            "    padding: 14px;"
-            "}"
-        );
-
-
-        list.setVerticalScrollMode(
-            QAbstractItemView::ScrollPerPixel
-        );
-
-
-        struct OrderDisplay
+    QObject::connect(
+        ordersButton,
+        &QPushButton::clicked,
+        [&]()
         {
-            std::string productName;
-            double price;
-            std::string purchasedAt;
-        };
+            QDialog dialog(
+                &window
+            );
 
 
-        std::vector<OrderDisplay> orderDisplays;
+            dialog.setWindowTitle(
+                "My Orders"
+            );
 
 
-        const std::string sql =
-            "SELECT "
-            "p.name, "
-            "p.price, "
-            "o.created_at "
-            "FROM orders o "
-            "INNER JOIN products p "
-            "ON p.id = o.product_id "
-            "WHERE o.user_id = " +
-            std::to_string(currentUserId) +
-            " "
-            "ORDER BY o.created_at DESC;";
+            dialog.resize(
+                800,
+                600
+            );
 
 
-        auto callback = [](
-            void* data,
-            int argc,
-            char** argv,
-            char**
-        ) -> int
-        {
-            auto* orders =
-                static_cast<
-                    std::vector<OrderDisplay>*
-                >(data);
+            QVBoxLayout layout(
+                &dialog
+            );
 
 
-            if (argc < 3)
+            QLabel titleLabel(
+                "My Orders"
+            );
+
+
+            titleLabel.setAlignment(
+                Qt::AlignCenter
+            );
+
+
+            titleLabel.setStyleSheet(
+                "font-size: 24px;"
+                "font-weight: bold;"
+                "padding: 10px;"
+            );
+
+
+            layout.addWidget(
+                &titleLabel
+            );
+
+
+            QListWidget list;
+
+
+            list.setStyleSheet(
+                "QListWidget {"
+                "    font-size: 16px;"
+                "}"
+                "QListWidget::item {"
+                "    padding: 14px;"
+                "}"
+            );
+
+
+            list.setVerticalScrollMode(
+                QAbstractItemView::ScrollPerPixel
+            );
+
+
+            struct OrderDisplay
             {
-                return 1;
-            }
+                std::string productName;
+                double price;
+                std::string purchasedAt;
+            };
 
 
-            OrderDisplay order;
+            std::vector<OrderDisplay>
+                orderDisplays;
 
 
-            order.productName =
-                argv[0]
-                    ? argv[0]
-                    : "";
+            const std::string sql =
+                "SELECT "
+                "p.name, "
+                "p.price, "
+                "o.created_at "
+                "FROM orders o "
+                "INNER JOIN products p "
+                "ON p.id = o.product_id "
+                "WHERE o.user_id = " +
+                std::to_string(
+                    currentUserId
+                ) +
+                " "
+                "ORDER BY o.created_at DESC;";
 
 
-            order.price =
-                argv[1]
-                    ? std::stod(argv[1])
-                    : 0.0;
-
-
-            order.purchasedAt =
-                argv[2]
-                    ? argv[2]
-                    : "";
-
-
-            orders->push_back(
-                order
-            );
-
-
-            return 0;
-        };
-
-
-        if (!database.query(
-                sql,
-                callback,
-                &orderDisplays))
-        {
-            list.addItem(
-                "Failed to load orders."
-            );
-        }
-        else if (orderDisplays.empty())
-        {
-            list.addItem(
-                "You have no orders yet."
-            );
-        }
-        else
-        {
-            for (const OrderDisplay& order :
-                 orderDisplays)
+            auto callback = [](
+                void* data,
+                int argc,
+                char** argv,
+                char**
+            ) -> int
             {
-                QString text;
+                auto* orders =
+                    static_cast<
+                        std::vector<OrderDisplay>*
+                    >(data);
 
 
-                text +=
-                    "Product: ";
+                if (argc < 3)
+                {
+                    return 1;
+                }
 
 
-                text +=
-                    QString::fromStdString(
-                        order.productName
-                    );
+                OrderDisplay order;
 
 
-                text +=
-                    "\nPrice: $";
+                order.productName =
+                    argv[0]
+                        ? argv[0]
+                        : "";
 
 
-                text +=
-                    QString::number(
-                        order.price,
-                        'f',
-                        2
-                    );
+                order.price =
+                    argv[1]
+                        ? std::stod(argv[1])
+                        : 0.0;
 
 
-                text +=
-                    "\nPurchased: ";
+                order.purchasedAt =
+                    argv[2]
+                        ? argv[2]
+                        : "";
 
 
-                text +=
-                    QString::fromStdString(
-                        order.purchasedAt
-                    );
+                orders->push_back(
+                    order
+                );
 
 
-                QListWidgetItem* item =
-                    new QListWidgetItem(
-                        text
-                    );
+                return 0;
+            };
 
 
+            if (!database.query(
+                    sql,
+                    callback,
+                    &orderDisplays))
+            {
                 list.addItem(
-                    item
+                    "Failed to load orders."
                 );
             }
+            else if (orderDisplays.empty())
+            {
+                list.addItem(
+                    "You have no orders yet."
+                );
+            }
+            else
+            {
+                for (
+                    const OrderDisplay& order :
+                    orderDisplays)
+                {
+                    QString text;
+
+
+                    text +=
+                        "Product: ";
+
+
+                    text +=
+                        QString::fromStdString(
+                            order.productName
+                        );
+
+
+                    text +=
+                        "\nPrice: $";
+
+
+                    text +=
+                        QString::number(
+                            order.price,
+                            'f',
+                            2
+                        );
+
+
+                    text +=
+                        "\nPurchased: ";
+
+
+                    text +=
+                        QString::fromStdString(
+                            order.purchasedAt
+                        );
+
+
+                    list.addItem(
+                        new QListWidgetItem(
+                            text
+                        )
+                    );
+                }
+            }
+
+
+            layout.addWidget(
+                &list
+            );
+
+
+            QPushButton closeButton(
+                "Close"
+            );
+
+
+            layout.addWidget(
+                &closeButton
+            );
+
+
+            QObject::connect(
+                &closeButton,
+                &QPushButton::clicked,
+                &dialog,
+                &QDialog::accept
+            );
+
+
+            dialog.exec();
         }
+    );
 
-
-        layout.addWidget(
-            &list
-        );
-
-
-        QPushButton closeButton(
-            "Close"
-        );
-
-
-        layout.addWidget(
-            &closeButton
-        );
-
-
-        QObject::connect(
-            &closeButton,
-            &QPushButton::clicked,
-            &dialog,
-            &QDialog::accept
-        );
-
-
-        dialog.exec();
-    }
-);
 
     // =================================================
     // PROFILE
@@ -1392,10 +1934,7 @@ QObject::connect(
                         );
 
 
-            QString message;
-
-
-            message +=
+            QString message =
                 "My Profile\n\n";
 
 
@@ -1409,14 +1948,14 @@ QObject::connect(
             message +=
                 "\nUsername: " +
                 QString::fromStdString(
-                    user->getUsername()
+                    loggedUser->getUsername()
                 );
 
 
             message +=
                 "\nEmail: " +
                 QString::fromStdString(
-                    user->getEmail()
+                    loggedUser->getEmail()
                 );
 
 
@@ -1437,7 +1976,7 @@ QObject::connect(
 
 
     // =================================================
-    // INITIAL DATA
+    // INITIAL LOAD
     // =================================================
 
     loadProducts();
@@ -1454,3 +1993,4 @@ QObject::connect(
 
     return app.exec();
 }
+
