@@ -17,9 +17,9 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <algorithm>
 #include <optional>
 #include <set>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -34,41 +34,15 @@
 #include "repositories/OrderRepository.h"
 
 
-std::string escapeSql(
-    const std::string& value
-)
-{
-    std::string result;
-
-    for (char ch : value)
-    {
-        if (ch == '\'')
-        {
-            result += "''";
-        }
-        else
-        {
-            result += ch;
-        }
-    }
-
-    return result;
-}
-
-
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
-
 
     // =================================================
     // DATABASE
     // =================================================
 
-    Database database(
-        "database/shop.db"
-    );
-
+    Database database("database/shop.db");
 
     if (!database.open())
     {
@@ -98,9 +72,7 @@ int main(int argc, char* argv[])
         );
     )";
 
-
-    if (!database.execute(
-            create_products_table))
+    if (!database.execute(create_products_table))
     {
         QMessageBox::critical(
             nullptr,
@@ -121,9 +93,7 @@ int main(int argc, char* argv[])
         );
     )";
 
-
-    if (!database.execute(
-            create_users_table))
+    if (!database.execute(create_users_table))
     {
         QMessageBox::critical(
             nullptr,
@@ -147,9 +117,7 @@ int main(int argc, char* argv[])
         );
     )";
 
-
-    if (!database.execute(
-            create_orders_table))
+    if (!database.execute(create_orders_table))
     {
         QMessageBox::critical(
             nullptr,
@@ -165,17 +133,9 @@ int main(int argc, char* argv[])
     // REPOSITORIES
     // =================================================
 
-    ProductRepository productRepository(
-        database
-    );
-
-    UserRepository userRepository(
-        database
-    );
-
-    OrderRepository orderRepository(
-        database
-    );
+    ProductRepository productRepository(database);
+    UserRepository userRepository(database);
+    OrderRepository orderRepository(database);
 
 
     // =================================================
@@ -298,6 +258,10 @@ int main(int argc, char* argv[])
         true
     );
 
+    loginStatus.setStyleSheet(
+        "padding: 10px;"
+    );
+
 
     loginLayout.addWidget(
         &loginStatus
@@ -350,14 +314,13 @@ int main(int argc, char* argv[])
                     result;
 
                 loginDialog.accept();
-
-                return;
             }
-
-
-            loginStatus.setText(
-                "Invalid email or password."
-            );
+            else
+            {
+                loginStatus.setText(
+                    "Invalid email or password."
+                );
+            }
         }
     );
 
@@ -485,6 +448,10 @@ int main(int argc, char* argv[])
                 true
             );
 
+            registerStatus.setStyleSheet(
+                "padding: 10px;"
+            );
+
 
             registerLayout.addWidget(
                 &registerStatus
@@ -528,33 +495,6 @@ int main(int argc, char* argv[])
                     }
 
 
-                    // ---------------------------------
-                    // Validate duplicate email
-                    // ---------------------------------
-
-                    auto existingUser =
-                        userRepository.login(
-                            email,
-                            password
-                        );
-
-
-                    if (existingUser.has_value())
-                    {
-                        loggedUser =
-                            existingUser;
-
-                        registerDialog.accept();
-                        loginDialog.accept();
-
-                        return;
-                    }
-
-
-                    // ---------------------------------
-                    // Register
-                    // ---------------------------------
-
                     const bool registered =
                         userRepository.registerUser(
                             username,
@@ -565,28 +505,6 @@ int main(int argc, char* argv[])
 
                     if (!registered)
                     {
-                        // Try login once more.
-                        // This also handles cases where
-                        // account creation already happened.
-                        auto createdUser =
-                            userRepository.login(
-                                email,
-                                password
-                            );
-
-
-                        if (createdUser.has_value())
-                        {
-                            loggedUser =
-                                createdUser;
-
-                            registerDialog.accept();
-                            loginDialog.accept();
-
-                            return;
-                        }
-
-
                         registerStatus.setText(
                             "Registration failed.\n"
                             "Username or email may already exist."
@@ -596,21 +514,17 @@ int main(int argc, char* argv[])
                     }
 
 
-                    // ---------------------------------
-                    // Login after registration
-                    // ---------------------------------
-
-                    auto createdUser =
+                    auto newUser =
                         userRepository.login(
                             email,
                             password
                         );
 
 
-                    if (!createdUser.has_value())
+                    if (!newUser.has_value())
                     {
                         registerStatus.setText(
-                            "Account was created, "
+                            "Account created, "
                             "but login failed."
                         );
 
@@ -619,7 +533,7 @@ int main(int argc, char* argv[])
 
 
                     loggedUser =
-                        createdUser;
+                        newUser;
 
 
                     registerDialog.accept();
@@ -655,11 +569,9 @@ int main(int argc, char* argv[])
 
     QWidget window;
 
-
     window.setWindowTitle(
         "Online Market"
     );
-
 
     window.resize(
         1250,
@@ -733,7 +645,7 @@ int main(int argc, char* argv[])
 
 
     // =================================================
-    // SEARCH / CATEGORY
+    // SEARCH / CATEGORY / SORT / REFRESH
     // =================================================
 
     QHBoxLayout* filterLayout =
@@ -753,6 +665,21 @@ int main(int argc, char* argv[])
         new QComboBox();
 
 
+    QComboBox* sortComboBox =
+        new QComboBox();
+
+
+    sortComboBox->addItems(
+        {
+            "Default",
+            "Price: Low to High",
+            "Price: High to Low",
+            "Name: A to Z",
+            "Name: Z to A"
+        }
+    );
+
+
     QPushButton* refreshButton =
         new QPushButton(
             "Refresh"
@@ -766,6 +693,11 @@ int main(int argc, char* argv[])
 
     filterLayout->addWidget(
         categoryComboBox
+    );
+
+
+    filterLayout->addWidget(
+        sortComboBox
     );
 
 
@@ -1050,10 +982,90 @@ int main(int argc, char* argv[])
         );
 
 
-        const std::vector<Product>
-            products =
-                productRepository.getAll();
+        std::vector<Product> products =
+            productRepository.getAll();
 
+
+        // -------------------------------------------------
+        // SORT
+        // -------------------------------------------------
+
+        const QString sortMode =
+            sortComboBox->currentText();
+
+
+        if (sortMode ==
+            "Price: Low to High")
+        {
+            std::sort(
+                products.begin(),
+                products.end(),
+                [](
+                    const Product& a,
+                    const Product& b
+                )
+                {
+                    return a.getPrice()
+                        < b.getPrice();
+                }
+            );
+        }
+        else if (
+            sortMode ==
+            "Price: High to Low")
+        {
+            std::sort(
+                products.begin(),
+                products.end(),
+                [](
+                    const Product& a,
+                    const Product& b
+                )
+                {
+                    return a.getPrice()
+                        > b.getPrice();
+                }
+            );
+        }
+        else if (
+            sortMode ==
+            "Name: A to Z")
+        {
+            std::sort(
+                products.begin(),
+                products.end(),
+                [](
+                    const Product& a,
+                    const Product& b
+                )
+                {
+                    return a.getName()
+                        < b.getName();
+                }
+            );
+        }
+        else if (
+            sortMode ==
+            "Name: Z to A")
+        {
+            std::sort(
+                products.begin(),
+                products.end(),
+                [](
+                    const Product& a,
+                    const Product& b
+                )
+                {
+                    return a.getName()
+                        > b.getName();
+                }
+            );
+        }
+
+
+        // -------------------------------------------------
+        // CATEGORIES
+        // -------------------------------------------------
 
         std::set<std::string>
             categories;
@@ -1084,6 +1096,10 @@ int main(int argc, char* argv[])
         );
 
 
+        // -------------------------------------------------
+        // PRODUCTS
+        // -------------------------------------------------
+
         for (const Product& product :
              products)
         {
@@ -1091,6 +1107,7 @@ int main(int argc, char* argv[])
                 new QListWidgetItem();
 
 
+            // Only product name
             item->setText(
                 QString::fromStdString(
                     product.getName()
@@ -1098,12 +1115,14 @@ int main(int argc, char* argv[])
             );
 
 
+            // Product ID
             item->setData(
                 Qt::UserRole,
                 product.getId()
             );
 
 
+            // Category
             item->setData(
                 Qt::UserRole + 1,
                 QString::fromStdString(
@@ -1112,12 +1131,14 @@ int main(int argc, char* argv[])
             );
 
 
+            // Availability
             item->setData(
                 Qt::UserRole + 2,
                 product.isAvailable()
             );
 
 
+            // Name
             item->setData(
                 Qt::UserRole + 3,
                 QString::fromStdString(
@@ -1126,12 +1147,14 @@ int main(int argc, char* argv[])
             );
 
 
+            // Price
             item->setData(
                 Qt::UserRole + 4,
                 product.getPrice()
             );
 
 
+            // Description
             item->setData(
                 Qt::UserRole + 5,
                 QString::fromStdString(
@@ -1140,6 +1163,7 @@ int main(int argc, char* argv[])
             );
 
 
+            // Image
             item->setData(
                 Qt::UserRole + 6,
                 QString::fromStdString(
@@ -1190,7 +1214,7 @@ int main(int argc, char* argv[])
 
 
     // =================================================
-    // FILTER
+    // FILTER PRODUCTS
     // =================================================
 
     auto filterProducts =
@@ -1377,7 +1401,7 @@ int main(int argc, char* argv[])
 
 
     // =================================================
-    // EVENTS
+    // SEARCH
     // =================================================
 
     QObject::connect(
@@ -1390,6 +1414,10 @@ int main(int argc, char* argv[])
     );
 
 
+    // =================================================
+    // CATEGORY
+    // =================================================
+
     QObject::connect(
         categoryComboBox,
         &QComboBox::currentTextChanged,
@@ -1399,6 +1427,26 @@ int main(int argc, char* argv[])
         }
     );
 
+
+    // =================================================
+    // SORT
+    // =================================================
+
+    QObject::connect(
+        sortComboBox,
+        &QComboBox::currentTextChanged,
+        [&]()
+        {
+            loadProducts();
+            filterProducts();
+            showProductDetails();
+        }
+    );
+
+
+    // =================================================
+    // PRODUCT SELECTION
+    // =================================================
 
     QObject::connect(
         productList,
@@ -1412,6 +1460,10 @@ int main(int argc, char* argv[])
         }
     );
 
+
+    // =================================================
+    // REFRESH
+    // =================================================
 
     QObject::connect(
         refreshButton,
@@ -1934,7 +1986,10 @@ int main(int argc, char* argv[])
                         );
 
 
-            QString message =
+            QString message;
+
+
+            message +=
                 "My Profile\n\n";
 
 
@@ -1990,7 +2045,5 @@ int main(int argc, char* argv[])
 
     window.show();
 
-
     return app.exec();
 }
-
